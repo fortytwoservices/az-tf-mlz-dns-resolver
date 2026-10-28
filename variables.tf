@@ -79,9 +79,9 @@ variable "outbound_endpoints" {
 Outbound endpoints, by key: where queries matching a forwarding ruleset's rules leave the virtual network for their target DNS servers. At most 5.
 
 - `name` - Name of the endpoint.
-- `subnet_id` - Resource ID of its subnet in `virtual_network_id`: /28 to /24, delegated to `Microsoft.Network/dnsResolvers`, used by no other endpoint or service. Changing it replaces the endpoint.
+- `subnet_id` - Resource ID of its subnet in `virtual_network_id`: /28 to /24, delegated to `Microsoft.Network/dnsResolvers`, used by no other endpoint or service. Changing it replaces the endpoint, which fails while a ruleset uses it (below).
 
-Azure deletes an outbound endpoint only once no ruleset uses it, and Terraform deletes a removed endpoint before it updates the rulesets that used it. So remove an endpoint from every ruleset's `outbound_endpoints` in one apply, and from this map in the next; removing a ruleset together with its endpoints works in one apply.
+Azure deletes an outbound endpoint only once no ruleset uses it, and Terraform deletes a removed endpoint before it updates the rulesets that used it. So remove an endpoint from every ruleset's `outbound_endpoints` in one apply, and from this map in the next; removing a ruleset together with its endpoints works in one apply. A replacement deletes the old endpoint first, under the same name and ID, so to move an endpoint that a ruleset uses to another subnet, add one under a new key and name, point the rulesets at it, and remove the old one in the next apply.
 DESCRIPTION
 
   validation {

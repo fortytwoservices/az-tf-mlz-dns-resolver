@@ -47,6 +47,10 @@ subnet of its own in the resolver's virtual network, /28 to /24, delegated to
   `create_before_destroy` on the ruleset would reverse that order, but Terraform passes it on to the
   endpoints and the resolver: a locked resolver's endpoint would then be deleted after its lock is back
   (`ScopeLocked`), and replacing an endpoint or the resolver would need a new name.
+- **Moving an outbound endpoint that a ruleset uses to another subnet** works the same way. A new
+  `subnet_id` replaces the endpoint under the same name and ID, and the old one cannot be deleted while a
+  ruleset uses it. So add an endpoint under a new key and name, point the rulesets at it, and remove the old
+  one in the next apply.
 - **Retries:** by default every write retries `AnotherOperationInProgress`, and `CannotDeleteResource`:
   Azure reports endpoints deleted while it still counts them as the resolver's nested resources for a
   short while.

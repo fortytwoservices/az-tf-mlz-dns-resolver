@@ -28,7 +28,7 @@ variable "parent_id" {
 
 variable "subnet_id" {
   type        = string
-  description = "Resource ID of the endpoint's subnet: in the resolver's virtual network, /28 to /24, delegated to `Microsoft.Network/dnsResolvers`, and used by no other endpoint or service. Changing it replaces the endpoint."
+  description = "Resource ID of the endpoint's subnet: in the resolver's virtual network, /28 to /24, delegated to `Microsoft.Network/dnsResolvers`, and used by no other endpoint or service. Changing it replaces the endpoint, which Azure refuses while a ruleset uses it: create another endpoint, point the rulesets at it, then remove this one."
   nullable    = false
 
   validation {

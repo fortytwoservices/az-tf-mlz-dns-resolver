@@ -49,6 +49,10 @@ subnet of its own in the resolver's virtual network, /28 to /24, delegated to
   `create_before_destroy` on the ruleset would reverse that order, but Terraform passes it on to the
   endpoints and the resolver: a locked resolver's endpoint would then be deleted after its lock is back
   (`ScopeLocked`), and replacing an endpoint or the resolver would need a new name.
+- **Moving an outbound endpoint that a ruleset uses to another subnet** works the same way. A new
+  `subnet_id` replaces the endpoint under the same name and ID, and the old one cannot be deleted while a
+  ruleset uses it. So add an endpoint under a new key and name, point the rulesets at it, and remove the old
+  one in the next apply.
 - **Retries:** by default every write retries `AnotherOperationInProgress`, and `CannotDeleteResource`:
   Azure reports endpoints deleted while it still counts them as the resolver's nested resources for a
   short while.
@@ -339,9 +343,9 @@ Default: `null`
 Description: Outbound endpoints, by key: where queries matching a forwarding ruleset's rules leave the virtual network for their target DNS servers. At most 5.
 
 - `name` - Name of the endpoint.
-- `subnet_id` - Resource ID of its subnet in `virtual_network_id`: /28 to /24, delegated to `Microsoft.Network/dnsResolvers`, used by no other endpoint or service. Changing it replaces the endpoint.
+- `subnet_id` - Resource ID of its subnet in `virtual_network_id`: /28 to /24, delegated to `Microsoft.Network/dnsResolvers`, used by no other endpoint or service. Changing it replaces the endpoint, which fails while a ruleset uses it (below).
 
-Azure deletes an outbound endpoint only once no ruleset uses it, and Terraform deletes a removed endpoint before it updates the rulesets that used it. So remove an endpoint from every ruleset's `outbound_endpoints` in one apply, and from this map in the next; removing a ruleset together with its endpoints works in one apply.
+Azure deletes an outbound endpoint only once no ruleset uses it, and Terraform deletes a removed endpoint before it updates the rulesets that used it. So remove an endpoint from every ruleset's `outbound_endpoints` in one apply, and from this map in the next; removing a ruleset together with its endpoints works in one apply. A replacement deletes the old endpoint first, under the same name and ID, so to move an endpoint that a ruleset uses to another subnet, add one under a new key and name, point the rulesets at it, and remove the old one in the next apply.
 
 Type:
 

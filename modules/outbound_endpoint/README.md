@@ -9,7 +9,9 @@ resolver's resource ID.
 
 Azure cannot move an endpoint to another subnet, so changing `subnet_id` replaces it. Azure deletes an
 outbound endpoint only once no ruleset uses it: take it out of the rulesets in one apply and delete it in
-the next.
+the next. For the same reason a new `subnet_id` fails while a ruleset uses the endpoint (the replacement
+keeps its name and ID, and deletes it first): create an endpoint with another name in the new subnet,
+point the rulesets at it, then remove this one.
 
 <!-- markdownlint-disable MD033 -->
 ## Requirements
@@ -51,7 +53,7 @@ Type: `string`
 
 ### <a name="input_subnet_id"></a> [subnet\_id](#input\_subnet\_id)
 
-Description: Resource ID of the endpoint's subnet: in the resolver's virtual network, /28 to /24, delegated to `Microsoft.Network/dnsResolvers`, and used by no other endpoint or service. Changing it replaces the endpoint.
+Description: Resource ID of the endpoint's subnet: in the resolver's virtual network, /28 to /24, delegated to `Microsoft.Network/dnsResolvers`, and used by no other endpoint or service. Changing it replaces the endpoint, which Azure refuses while a ruleset uses it: create another endpoint, point the rulesets at it, then remove this one.
 
 Type: `string`
 
