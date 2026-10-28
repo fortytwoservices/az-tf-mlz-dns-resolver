@@ -1,6 +1,7 @@
 # Real Azure, no mocks: ARM_SUBSCRIPTION_ID=<test subscription> scripts/integration.sh modules/forwarding_rule
-# Proves what mocks cannot: the default API version and body are accepted, targets, state and removed
-# metadata are updated in place and reach Azure, and a new domain name replaces the rule.
+# Proves what mocks cannot: the default API version and body are accepted, targets, state, one removed
+# metadata entry and all removed metadata are updated in place and reach Azure, and a new domain name
+# replaces the rule.
 
 run "setup" {
   module {
@@ -18,7 +19,34 @@ run "create" {
     parent_id          = run.setup.ruleset_id
     domain_name        = "contoso.example."
     target_dns_servers = [{ ip_address = "10.100.0.4" }, { ip_address = "10.100.0.5" }]
+    metadata           = { owner = "network", team = "dns" }
+  }
+}
+
+run "remove_one_metadata_entry" {
+  # The remaining entry is unchanged, so only the metadata version makes this an update.
+  variables {
+    name               = "contoso"
+    parent_id          = run.setup.ruleset_id
+    domain_name        = "contoso.example."
+    target_dns_servers = [{ ip_address = "10.100.0.4" }, { ip_address = "10.100.0.5" }]
     metadata           = { owner = "network" }
+  }
+}
+
+run "one_metadata_entry_in_azure" {
+  module {
+    source = "../../tests/integration/read"
+  }
+
+  variables {
+    type = "Microsoft.Network/dnsForwardingRulesets/forwardingRules@2025-05-01"
+    ids  = { rule = run.remove_one_metadata_entry.resource_id }
+  }
+
+  assert {
+    condition     = jsonencode(output.properties["rule"].metadata) == jsonencode({ owner = "network" })
+    error_message = "Azure should hold only the remaining entry, got ${jsonencode(output.properties["rule"].metadata)}."
   }
 }
 

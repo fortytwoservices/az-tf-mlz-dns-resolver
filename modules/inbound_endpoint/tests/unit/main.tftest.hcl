@@ -107,6 +107,16 @@ run "invalid_private_ip_address" {
   expect_failures = [var.private_ip_address]
 }
 
+run "ipv6_private_ip_address" {
+  command = plan
+
+  variables {
+    private_ip_address = "2001:db8::4"
+  }
+
+  expect_failures = [var.private_ip_address]
+}
+
 run "invalid_name" {
   command = plan
 

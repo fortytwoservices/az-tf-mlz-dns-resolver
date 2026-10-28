@@ -1,6 +1,6 @@
 # Real Azure, no mocks: ARM_SUBSCRIPTION_ID=<test subscription> scripts/integration.sh modules/virtual_network_link
-# Proves what mocks cannot: the default API version and body are accepted, removed metadata reaches
-# Azure, and another virtual network replaces the link.
+# Proves what mocks cannot: the default API version and body are accepted, one removed metadata entry
+# and all removed metadata reach Azure, and another virtual network replaces the link.
 
 run "setup" {
   module {
@@ -17,7 +17,33 @@ run "create" {
     name               = "spoke"
     parent_id          = run.setup.ruleset_id
     virtual_network_id = run.setup.spoke_virtual_network_ids["vnet-spoke-1"]
+    metadata           = { owner = "spoke-team", team = "dns" }
+  }
+}
+
+run "remove_one_metadata_entry" {
+  # The remaining entry is unchanged, so only the metadata version makes this an update.
+  variables {
+    name               = "spoke"
+    parent_id          = run.setup.ruleset_id
+    virtual_network_id = run.setup.spoke_virtual_network_ids["vnet-spoke-1"]
     metadata           = { owner = "spoke-team" }
+  }
+}
+
+run "one_metadata_entry_in_azure" {
+  module {
+    source = "../../tests/integration/read"
+  }
+
+  variables {
+    type = "Microsoft.Network/dnsForwardingRulesets/virtualNetworkLinks@2025-05-01"
+    ids  = { link = run.remove_one_metadata_entry.resource_id }
+  }
+
+  assert {
+    condition     = jsonencode(output.properties["link"].metadata) == jsonencode({ owner = "spoke-team" })
+    error_message = "Azure should hold only the remaining entry, got ${jsonencode(output.properties["link"].metadata)}."
   }
 }
 

@@ -69,6 +69,10 @@ run "disabled_with_metadata" {
     condition     = output.lock_dependency != run.defaults.lock_dependency
     error_message = "lock_dependency should change with the body."
   }
+  assert {
+    condition     = azapi_resource.this.sensitive_body_version["properties.metadata"] == sha256(jsonencode(var.metadata)) && azapi_resource.this.sensitive_body_version["properties.metadata"] != sha256(jsonencode({}))
+    error_message = "A metadata change should change the version that sends the metadata again, so that removing one entry reaches Azure."
+  }
 }
 
 run "wildcard" {
@@ -159,6 +163,16 @@ run "port_other_than_53" {
 
   variables {
     target_dns_servers = [{ ip_address = "10.100.0.4", port = 5353 }]
+  }
+
+  expect_failures = [var.target_dns_servers]
+}
+
+run "ipv6_target" {
+  command = plan
+
+  variables {
+    target_dns_servers = [{ ip_address = "2001:db8::4" }]
   }
 
   expect_failures = [var.target_dns_servers]

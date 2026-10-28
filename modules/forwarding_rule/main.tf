@@ -13,7 +13,11 @@ resource "azapi_resource" "this" {
       targetDnsServers    = [for server in var.target_dns_servers : { ipAddress = server.ip_address, port = server.port }]
     }
   }
-  ignore_body_changes = length(var.ignore_body_changes.network_dns_forwarding_rulesets_forwarding_rules) > 0 ? var.ignore_body_changes.network_dns_forwarding_rulesets_forwarding_rules : null
+  # Removing one metadata entry leaves the other keys unchanged, so azapi plans no change. A new version
+  # sends the metadata again whenever the map changes, and the PUT replaces what Azure holds.
+  sensitive_body         = { properties = { metadata = length(var.metadata) > 0 ? var.metadata : null } }
+  sensitive_body_version = { "properties.metadata" = sha256(jsonencode(var.metadata)) }
+  ignore_body_changes    = length(var.ignore_body_changes.network_dns_forwarding_rulesets_forwarding_rules) > 0 ? var.ignore_body_changes.network_dns_forwarding_rulesets_forwarding_rules : null
   # azurerm marks the domain name ForceNew. The input value is compared, not the body path, so the form
   # Azure returns the name in cannot trigger a replacement.
   replace_triggers_external_values = {

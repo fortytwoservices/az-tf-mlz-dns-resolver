@@ -10,7 +10,11 @@ resource "azapi_resource" "this" {
       virtualNetwork = { id = var.virtual_network_id }
     }
   }
-  ignore_body_changes = length(var.ignore_body_changes.network_dns_forwarding_rulesets_virtual_network_links) > 0 ? var.ignore_body_changes.network_dns_forwarding_rulesets_virtual_network_links : null
+  # Removing one metadata entry leaves the other keys unchanged, so azapi plans no change. A new version
+  # sends the metadata again whenever the map changes, and the PUT replaces what Azure holds.
+  sensitive_body         = { properties = { metadata = length(var.metadata) > 0 ? var.metadata : null } }
+  sensitive_body_version = { "properties.metadata" = sha256(jsonencode(var.metadata)) }
+  ignore_body_changes    = length(var.ignore_body_changes.network_dns_forwarding_rulesets_virtual_network_links) > 0 ? var.ignore_body_changes.network_dns_forwarding_rulesets_virtual_network_links : null
   # Azure cannot point a link at another virtual network (Learn: "cannot be changed after creation"). The
   # input value is compared, not the body path, so the casing Azure returns IDs in cannot trigger a
   # replacement.

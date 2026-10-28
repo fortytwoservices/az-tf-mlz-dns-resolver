@@ -56,6 +56,10 @@ run "metadata" {
     condition     = output.lock_dependency != run.defaults.lock_dependency
     error_message = "lock_dependency should change with the body."
   }
+  assert {
+    condition     = azapi_resource.this.sensitive_body_version["properties.metadata"] == sha256(jsonencode(var.metadata)) && azapi_resource.this.sensitive_body_version["properties.metadata"] != sha256(jsonencode({}))
+    error_message = "A metadata change should change the version that sends the metadata again, so that removing one entry reaches Azure."
+  }
 }
 
 run "overrides" {

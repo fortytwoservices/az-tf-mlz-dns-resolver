@@ -32,7 +32,7 @@ variable "private_ip_address" {
   description = "(Optional) A static IPv4 address for the endpoint, inside `subnet_id` and not one of the subnet's five reserved addresses. When null, Azure assigns one dynamically: the subnet's fifth address (`.4` in `10.0.0.0/28`), which changes only if the endpoint is created again. Changing it replaces the endpoint."
 
   validation {
-    condition     = var.private_ip_address == null ? true : can(cidrhost("${var.private_ip_address}/32", 0))
+    condition     = var.private_ip_address == null ? true : can(cidrnetmask("${var.private_ip_address}/32")) # cidrhost would take IPv6 too
     error_message = "`private_ip_address` must be an IPv4 address."
   }
 }

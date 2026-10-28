@@ -65,7 +65,7 @@ DESCRIPTION
   validation {
     condition = alltrue([
       for server in var.target_dns_servers :
-      can(cidrhost("${server.ip_address}/32", 0)) && server.ip_address != "168.63.129.16"
+      can(cidrnetmask("${server.ip_address}/32")) && server.ip_address != "168.63.129.16" # cidrhost would take IPv6 too
     ])
     error_message = "Each target DNS server needs an IPv4 address other than Azure DNS (`168.63.129.16`)."
   }
