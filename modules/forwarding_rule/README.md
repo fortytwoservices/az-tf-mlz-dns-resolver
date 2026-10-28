@@ -11,8 +11,8 @@ Azure cannot change a rule's domain name, so changing it replaces the rule; targ
 are updated in place. Azure accepts only port 53 for the targets.
 
 Removing one metadata entry leaves the other keys as they were, and azapi compares only the keys in the
-body, so the metadata is also sent through `sensitive_body`, versioned by a hash of the map: any change
-is written. A plan that removes an entry shows only that version changing.
+body, so the metadata is also sent through `sensitive_body`, versioned by a hash of the map: any change,
+a removed entry included, plans an update that writes it.
 
 <!-- markdownlint-disable MD033 -->
 ## Requirements

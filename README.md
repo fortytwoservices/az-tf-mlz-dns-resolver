@@ -54,9 +54,9 @@ subnet of its own in the resolver's virtual network, /28 to /24, delegated to
   short while.
 - **Target ports:** Azure accepts only port 53 for a rule's target DNS servers.
 - **Metadata on rules and links:** azapi compares only the keys in the body, so removing one entry
-  would otherwise never reach Azure. The metadata is also sent through `sensitive_body`, versioned by a
-  hash of the map, so any change is written. The cost: a plan that removes an entry shows only the
-  version's hash changing, not which entry goes (added and changed entries still show in the body).
+  would otherwise plan no change and never reach Azure. The metadata is also sent through
+  `sensitive_body`, versioned by a hash of the map: any change, a removed entry included, plans an update
+  that writes it, and the plan shows the removed entry in the body.
 - **Loops:** do not link a ruleset to the virtual network of an inbound endpoint that one of its rules
   forwards to; the queries would loop.
 
