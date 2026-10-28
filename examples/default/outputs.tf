@@ -1,9 +1,9 @@
-output "principal_id" {
-  description = "Object ID of the identity's service principal."
-  value       = module.user_assigned_identity.principal_id
+output "inbound_endpoint_ip_addresses" {
+  description = "Private IP addresses of the inbound endpoints, by key."
+  value       = module.dns_resolver.inbound_endpoint_ip_addresses
 }
 
 output "resource_id" {
-  description = "Resource ID of the user-assigned identity."
-  value       = module.user_assigned_identity.resource_id
+  description = "Resource ID of the DNS private resolver."
+  value       = module.dns_resolver.resource_id
 }
