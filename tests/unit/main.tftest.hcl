@@ -1,12 +1,12 @@
 mock_provider "azapi" {
   mock_resource "azapi_resource" {
     defaults = {
-      id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-test"
+      # A ruleset ID: the rules and links validate their parent. The resolver and outbound endpoints get
+      # their own IDs below.
+      id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.Network/dnsForwardingRulesets/dnsfrs-test"
       output = {
         properties = {
-          clientId    = "22222222-2222-2222-2222-222222222222"
-          principalId = "33333333-3333-3333-3333-333333333333"
-          tenantId    = "44444444-4444-4444-4444-444444444444"
+          ipConfigurations = [{ privateIpAddress = "10.0.0.4" }]
         }
       }
     }
@@ -27,103 +27,150 @@ mock_provider "azapi" {
 mock_provider "random" {}
 mock_provider "time" {}
 
+# Mocked resources all share one ID, and the endpoints and rulesets validate their parents. An override
+# of a resource inside a for_each module is ignored (Terraform 1.17.0), so the outbound endpoints are
+# overridden as a module; their own tests cover their resource.
+override_resource {
+  target = azapi_resource.this
+  values = {
+    id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.Network/dnsResolvers/dnspr-test"
+  }
+}
+
+override_module {
+  target = module.outbound_endpoint
+  outputs = {
+    lock_dependency = "0000000000000000000000000000000000000000000000000000000000000000"
+    name            = "out-primary"
+    resource_id     = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.Network/dnsResolvers/dnspr-test/outboundEndpoints/out-primary"
+  }
+}
+
 variables {
-  location  = "norwayeast"
-  name      = "id-test"
-  parent_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test"
+  name               = "dnspr-test"
+  parent_id          = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test"
+  location           = "swedencentral"
+  virtual_network_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.Network/virtualNetworks/vnet-hub"
 }
 
 run "defaults" {
   command = apply
 
   assert {
-    condition     = azapi_resource.this.type == "Microsoft.ManagedIdentity/userAssignedIdentities@2024-11-30"
-    error_message = "The identity should use the default resource type."
+    condition     = azapi_resource.this.type == "Microsoft.Network/dnsResolvers@2025-05-01"
+    error_message = "The resolver should use the default resource type."
   }
   assert {
     condition     = azapi_resource.this.name == var.name && azapi_resource.this.parent_id == var.parent_id && azapi_resource.this.location == var.location
-    error_message = "The identity should be created with name, parent_id and location."
+    error_message = "The resolver should be created with name, parent_id and location."
   }
   assert {
-    condition     = azapi_resource.this.body.properties.isolationScope == "None"
-    error_message = "isolationScope should be sent with Azure's default, so that changing it back reaches Azure."
+    condition     = azapi_resource.this.body.properties.virtualNetwork.id == var.virtual_network_id && azapi_resource.this.replace_triggers_external_values.virtual_network_id == var.virtual_network_id
+    error_message = "virtual_network_id should map to properties.virtualNetwork.id, and another virtual network should replace the resolver."
   }
   assert {
-    condition     = azapi_resource.this.retry == null
-    error_message = "retry should be unset by default."
+    condition     = azapi_resource.this.retry.error_message_regex == tolist(["AnotherOperationInProgress", "CannotDeleteResource"]) && azapi_resource.this.retry.interval_seconds == 30 && azapi_resource.this.retry.max_interval_seconds == 300
+    error_message = "The default retry should cover AnotherOperationInProgress and CannotDeleteResource."
   }
   assert {
-    condition     = azapi_resource.this.timeouts == null
-    error_message = "timeouts should be unset by default."
+    condition     = azapi_resource.this.timeouts == null && length(coalesce(azapi_resource.this.tags, {})) == 0
+    error_message = "timeouts and tags should be unset by default."
   }
   assert {
-    condition     = length(coalesce(azapi_resource.this.tags, {})) == 0 # computed: the mock returns {}
-    error_message = "tags should be unset by default."
+    condition     = module.interfaces.lock_resource_id == null && length(module.interfaces.role_assignment_resource_ids) == 0
+    error_message = "No lock or role assignment should be created by default."
   }
   assert {
-    condition     = module.interfaces.lock_resource_id == null && length(module.interfaces.role_assignment_resource_ids) + length(module.federated_identity_credential) == 0
-    error_message = "No lock, role assignment or credential should be created by default."
+    condition     = length(module.inbound_endpoint) + length(module.outbound_endpoint) + length(module.forwarding_ruleset) == 0
+    error_message = "No endpoint or ruleset should be created by default."
   }
   assert {
     condition     = output.resource_id == azapi_resource.this.id && output.name == var.name
-    error_message = "resource_id and name should come from the identity."
+    error_message = "resource_id and name should come from the resolver."
   }
   assert {
-    condition     = output.principal_id == "33333333-3333-3333-3333-333333333333" && output.client_id == "22222222-2222-2222-2222-222222222222" && output.tenant_id == "44444444-4444-4444-4444-444444444444"
-    error_message = "principal_id, client_id and tenant_id should come from the identity's exported properties."
-  }
-  assert {
-    condition     = length(output.federated_identity_credential_resource_ids) == 0
-    error_message = "No credential IDs should be output by default."
+    condition = (
+      length(output.inbound_endpoint_ip_addresses) + length(output.inbound_endpoint_resource_ids) + length(output.outbound_endpoint_resource_ids) +
+      length(output.forwarding_ruleset_resource_ids) + length(output.forwarding_rule_resource_ids) + length(output.virtual_network_link_resource_ids) == 0
+    )
+    error_message = "The endpoint and ruleset outputs should be empty by default."
   }
 }
 
-run "identity_options" {
+run "endpoints_and_rulesets" {
   command = apply
 
   variables {
-    isolation_scope = "Regional"
-    tags            = { environment = "test" }
+    inbound_endpoints = {
+      primary   = { name = "in-primary", subnet_id = "${var.virtual_network_id}/subnets/snet-inbound", private_ip_address = "10.0.0.4" }
+      secondary = { name = "in-secondary", subnet_id = "${var.virtual_network_id}/subnets/snet-inbound-2" }
+    }
+    outbound_endpoints = {
+      primary = { name = "out-primary", subnet_id = "${var.virtual_network_id}/subnets/snet-outbound" }
+    }
+    forwarding_rulesets = {
+      onprem = {
+        name               = "dnsfrs-onprem"
+        outbound_endpoints = ["primary"]
+        rules = {
+          contoso = { domain_name = "contoso.com.", target_dns_servers = [{ ip_address = "10.100.0.4" }] }
+        }
+        virtual_network_links = {
+          spoke = { virtual_network_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-spoke/providers/Microsoft.Network/virtualNetworks/vnet-spoke" }
+        }
+        lock = { kind = "CanNotDelete" }
+      }
+      other_resolver = {
+        name               = "dnsfrs-other"
+        outbound_endpoints = ["/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-other/providers/Microsoft.Network/dnsResolvers/dnspr-other/outboundEndpoints/out-other"]
+      }
+    }
+    tags = { environment = "test" }
   }
 
   assert {
-    condition     = azapi_resource.this.body.properties.isolationScope == "Regional"
-    error_message = "isolation_scope should map to properties.isolationScope."
+    condition     = keys(module.inbound_endpoint) == ["primary", "secondary"] && module.inbound_endpoint["primary"].name == "in-primary"
+    error_message = "One inbound endpoint module should be created per entry, with its name."
+  }
+  assert {
+    condition     = keys(module.outbound_endpoint) == ["primary"] && module.outbound_endpoint["primary"].name == "out-primary"
+    error_message = "One outbound endpoint module should be created per entry, with its name."
+  }
+  assert {
+    condition     = keys(module.forwarding_ruleset) == ["onprem", "other_resolver"] && module.forwarding_ruleset["onprem"].name == "dnsfrs-onprem"
+    error_message = "One ruleset module should be created per entry, with its name."
+  }
+  assert {
+    condition     = output.inbound_endpoint_ip_addresses["primary"] == "10.0.0.4" && output.inbound_endpoint_ip_addresses["secondary"] == "10.0.0.4"
+    error_message = "inbound_endpoint_ip_addresses should come from the endpoints, by key."
+  }
+  assert {
+    condition     = keys(output.inbound_endpoint_resource_ids) == ["primary", "secondary"] && keys(output.outbound_endpoint_resource_ids) == ["primary"]
+    error_message = "Endpoint resource IDs should be output by key."
+  }
+  assert {
+    condition     = keys(output.forwarding_ruleset_resource_ids) == ["onprem", "other_resolver"]
+    error_message = "Ruleset resource IDs should be output by key."
+  }
+  assert {
+    condition     = keys(output.forwarding_rule_resource_ids["onprem"]) == ["contoso"] && length(output.forwarding_rule_resource_ids["other_resolver"]) == 0
+    error_message = "Rule resource IDs should be output by ruleset key, then rule name."
+  }
+  assert {
+    condition     = keys(output.virtual_network_link_resource_ids["onprem"]) == ["spoke"] && length(output.virtual_network_link_resource_ids["other_resolver"]) == 0
+    error_message = "Link resource IDs should be output by ruleset key, then link name."
+  }
+  assert {
+    condition     = module.forwarding_ruleset["onprem"].lock_resource_id != null && module.forwarding_ruleset["other_resolver"].lock_resource_id == null
+    error_message = "A ruleset's lock should reach that ruleset only."
+  }
+  assert {
+    condition     = module.interfaces.lock_resource_id == null
+    error_message = "A ruleset's lock should not lock the resolver."
   }
   assert {
     condition     = azapi_resource.this.tags == tomap({ environment = "test" })
-    error_message = "tags should be set on the identity."
-  }
-}
-
-run "federated_identity_credentials" {
-  command = apply
-
-  variables {
-    federated_identity_credentials = {
-      github-main = {
-        issuer  = "https://token.actions.githubusercontent.com"
-        subject = "repo:example/example:ref:refs/heads/main"
-      }
-      github-pr = {
-        issuer    = "https://token.actions.githubusercontent.com"
-        subject   = "repo:example/example:pull_request"
-        audiences = ["api://custom"]
-      }
-    }
-  }
-
-  assert {
-    condition     = toset(keys(module.federated_identity_credential)) == toset(["github-main", "github-pr"])
-    error_message = "One credential module should be created per map entry."
-  }
-  assert {
-    condition     = module.federated_identity_credential["github-main"].name == "github-main"
-    error_message = "The map key should be the credential name."
-  }
-  assert {
-    condition     = keys(output.federated_identity_credential_resource_ids) == ["github-main", "github-pr"]
-    error_message = "Credential resource IDs should be output by credential name."
+    error_message = "tags should be set on the resolver."
   }
 }
 
@@ -131,29 +178,31 @@ run "interfaces" {
   command = apply
 
   variables {
-    federated_identity_credentials = {
-      github-main = {
-        issuer  = "https://token.actions.githubusercontent.com"
-        subject = "repo:example/example:ref:refs/heads/main"
-      }
+    inbound_endpoints = {
+      primary = { name = "in-primary", subnet_id = "${var.virtual_network_id}/subnets/snet-inbound" }
     }
     lock = { kind = "CanNotDelete" }
     role_assignments = {
-      by_name = {
+      reader = {
         role_definition_id_or_name = "Reader"
         principal_id               = "55555555-5555-5555-5555-555555555555"
       }
-      tenant_level_id = {
-        role_definition_id_or_name       = "/providers/Microsoft.Authorization/roleDefinitions/acdd72a7-3385-48ef-bd42-f606fba81ae7"
-        principal_id                     = "66666666-6666-6666-6666-666666666666"
-        skip_service_principal_aad_check = true
+    }
+    diagnostic_settings = {
+      metrics = {
+        workspace_resource_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.OperationalInsights/workspaces/law-test"
+        metrics               = [{ category = "AllMetrics" }]
       }
     }
   }
 
   # Their behaviour is tested in az-tf-mlz-interfaces; a test sees only its outputs.
   assert {
-    condition     = module.interfaces.lock_resource_id != null && keys(module.interfaces.role_assignment_resource_ids) == ["by_name", "tenant_level_id"]
+    condition     = keys(module.interfaces.diagnostic_setting_resource_ids) == ["metrics"]
+    error_message = "Diagnostic settings should be created through az-tf-mlz-interfaces."
+  }
+  assert {
+    condition     = module.interfaces.lock_resource_id != null && keys(module.interfaces.role_assignment_resource_ids) == ["reader"]
     error_message = "The lock and role assignments should be created through az-tf-mlz-interfaces."
   }
 }
@@ -162,42 +211,60 @@ run "azapi_settings_reach_every_resource" {
   command = apply
 
   # ignore_body_changes is write-only, so a test cannot read it back, and avm_interface_ignore_body_changes
-  # only checks that the argument uses the variable, not which slot. Setting it here proves the slots are
-  # accepted; which resource reads which slot is left to review. The interface keys of resource_types and
-  # ignore_body_changes, retry and timeouts go to az-tf-mlz-interfaces, whose tests check them.
+  # only checks that the argument uses the variable, not which slot. Setting every slot proves the shape
+  # is accepted; which resource reads which slot is left to review.
   variables {
-    lock = { kind = "CanNotDelete" }
-    role_assignments = {
-      reader = {
-        role_definition_id_or_name = "Reader"
-        principal_id               = "55555555-5555-5555-5555-555555555555"
+    inbound_endpoints = {
+      primary = { name = "in-primary", subnet_id = "${var.virtual_network_id}/subnets/snet-inbound" }
+    }
+    outbound_endpoints = {
+      primary = { name = "out-primary", subnet_id = "${var.virtual_network_id}/subnets/snet-outbound" }
+    }
+    forwarding_rulesets = {
+      onprem = {
+        name               = "dnsfrs-onprem"
+        outbound_endpoints = ["primary"]
+        rules = {
+          contoso = { domain_name = "contoso.com.", target_dns_servers = [{ ip_address = "10.100.0.4" }] }
+        }
       }
     }
     resource_types = {
-      managedidentity_user_assigned_identities = "Microsoft.ManagedIdentity/userAssignedIdentities@2025-05-31-preview"
+      network_dns_resolvers                    = "Microsoft.Network/dnsResolvers@2022-07-01"
       authorization_locks                      = "Microsoft.Authorization/locks@2016-09-01"
       authorization_role_assignments           = "Microsoft.Authorization/roleAssignments@2020-04-01-preview"
+      network_dns_resolvers_inbound_endpoints  = { network_dns_resolvers_inbound_endpoints = "Microsoft.Network/dnsResolvers/inboundEndpoints@2022-07-01" }
+      network_dns_resolvers_outbound_endpoints = { network_dns_resolvers_outbound_endpoints = "Microsoft.Network/dnsResolvers/outboundEndpoints@2022-07-01" }
+      network_dns_forwarding_rulesets = {
+        network_dns_forwarding_rulesets                       = "Microsoft.Network/dnsForwardingRulesets@2022-07-01"
+        network_dns_forwarding_rulesets_forwarding_rules      = { network_dns_forwarding_rulesets_forwarding_rules = "Microsoft.Network/dnsForwardingRulesets/forwardingRules@2022-07-01" }
+        network_dns_forwarding_rulesets_virtual_network_links = { network_dns_forwarding_rulesets_virtual_network_links = "Microsoft.Network/dnsForwardingRulesets/virtualNetworkLinks@2022-07-01" }
+      }
     }
     ignore_body_changes = {
-      managedidentity_user_assigned_identities = ["properties.isolationScope"]
-      authorization_locks                      = ["properties.notes"]
-      authorization_role_assignments           = ["properties.description"]
+      network_dns_resolvers                    = ["properties.virtualNetwork"]
+      network_dns_resolvers_inbound_endpoints  = { network_dns_resolvers_inbound_endpoints = ["properties.ipConfigurations"] }
+      network_dns_resolvers_outbound_endpoints = { network_dns_resolvers_outbound_endpoints = ["properties.subnet"] }
+      network_dns_forwarding_rulesets = {
+        network_dns_forwarding_rulesets                  = ["properties.dnsResolverOutboundEndpoints"]
+        network_dns_forwarding_rulesets_forwarding_rules = { network_dns_forwarding_rulesets_forwarding_rules = ["properties.metadata"] }
+      }
     }
     retry = {
-      error_message_regex = ["AnotherOperationInProgress"]
+      error_message_regex = ["AnotherOperationInProgress", "Conflict"]
     }
     timeouts = {
-      create = "15m"
+      create = "45m"
     }
   }
 
   assert {
-    condition     = azapi_resource.this.type == "Microsoft.ManagedIdentity/userAssignedIdentities@2025-05-31-preview"
-    error_message = "The resource_types override should reach the identity."
+    condition     = azapi_resource.this.type == "Microsoft.Network/dnsResolvers@2022-07-01"
+    error_message = "The resource_types override should reach the resolver."
   }
   assert {
-    condition     = azapi_resource.this.retry.error_message_regex == tolist(["AnotherOperationInProgress"]) && azapi_resource.this.timeouts.create == "15m"
-    error_message = "retry and timeouts should reach the identity."
+    condition     = azapi_resource.this.retry.error_message_regex == tolist(["AnotherOperationInProgress", "Conflict"]) && azapi_resource.this.timeouts.create == "45m"
+    error_message = "retry and timeouts should reach the resolver."
   }
 }
 
@@ -205,7 +272,7 @@ run "invalid_name" {
   command = plan
 
   variables {
-    name = "-bad"
+    name = "dnspr-"
   }
 
   expect_failures = [var.name]
@@ -221,76 +288,106 @@ run "invalid_parent_id" {
   expect_failures = [var.parent_id]
 }
 
-run "invalid_isolation_scope" {
+run "invalid_virtual_network_id" {
   command = plan
 
   variables {
-    isolation_scope = "Global"
+    virtual_network_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test"
   }
 
-  expect_failures = [var.isolation_scope]
+  expect_failures = [var.virtual_network_id]
 }
 
-run "empty_isolation_scope" {
+run "inbound_subnet_in_another_virtual_network" {
   command = plan
 
   variables {
-    isolation_scope = ""
+    inbound_endpoints = {
+      primary = { name = "in-primary", subnet_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.Network/virtualNetworks/vnet-hub-2/subnets/snet-inbound" }
+    }
   }
 
-  expect_failures = [var.isolation_scope]
+  expect_failures = [var.inbound_endpoints]
 }
 
-run "null_isolation_scope" {
+run "six_inbound_endpoints" {
   command = plan
 
   variables {
-    isolation_scope = null
+    inbound_endpoints = { for i in range(6) : "e${i}" => { name = "in-${i}", subnet_id = "${var.virtual_network_id}/subnets/snet-in-${i}" } }
   }
 
-  assert {
-    condition     = azapi_resource.this.body.properties.isolationScope == "None"
-    error_message = "A null isolation_scope should fall back to the default."
-  }
+  expect_failures = [var.inbound_endpoints]
 }
 
-run "invalid_lock_kind" {
+run "outbound_subnet_in_another_virtual_network" {
   command = plan
 
   variables {
-    lock = { kind = "Delete" }
+    outbound_endpoints = {
+      primary = { name = "out-primary", subnet_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.Network/virtualNetworks/vnet-hub-2/subnets/snet-outbound" }
+    }
   }
 
-  expect_failures = [var.lock]
+  expect_failures = [var.outbound_endpoints]
 }
 
-run "too_many_credentials" {
+run "shared_subnet" {
   command = plan
 
   variables {
-    federated_identity_credentials = {
-      for i in range(21) : "credential-${i}" => {
-        issuer  = "https://token.actions.githubusercontent.com"
-        subject = "repo:example/example:environment:env-${i}"
+    inbound_endpoints = {
+      primary = { name = "in-primary", subnet_id = "${var.virtual_network_id}/subnets/snet-dns" }
+    }
+    outbound_endpoints = {
+      primary = { name = "out-primary", subnet_id = "${var.virtual_network_id}/subnets/SNET-DNS" }
+    }
+  }
+
+  expect_failures = [var.outbound_endpoints]
+}
+
+run "unknown_outbound_endpoint_key" {
+  command = plan
+
+  variables {
+    outbound_endpoints = {
+      primary = { name = "out-primary", subnet_id = "${var.virtual_network_id}/subnets/snet-outbound" }
+    }
+    forwarding_rulesets = {
+      onprem = { name = "dnsfrs-onprem", outbound_endpoints = ["secondary"] }
+    }
+  }
+
+  expect_failures = [var.forwarding_rulesets]
+}
+
+run "invalid_ruleset_lock_kind" {
+  command = plan
+
+  variables {
+    outbound_endpoints = {
+      primary = { name = "out-primary", subnet_id = "${var.virtual_network_id}/subnets/snet-outbound" }
+    }
+    forwarding_rulesets = {
+      onprem = { name = "dnsfrs-onprem", outbound_endpoints = ["primary"], lock = { kind = "Delete" } }
+    }
+  }
+
+  expect_failures = [var.forwarding_rulesets]
+}
+
+run "diagnostic_logs" {
+  command = plan
+
+  variables {
+    diagnostic_settings = {
+      logs = {
+        workspace_resource_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.OperationalInsights/workspaces/law-test"
+        logs                  = [{ category_group = "allLogs" }]
       }
     }
   }
 
-  expect_failures = [var.federated_identity_credentials]
-}
-
-run "invalid_delegated_identity" {
-  command = plan
-
-  variables {
-    role_assignments = {
-      reader = {
-        role_definition_id_or_name             = "Reader"
-        principal_id                           = "55555555-5555-5555-5555-555555555555"
-        delegated_managed_identity_resource_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test"
-      }
-    }
-  }
-
-  expect_failures = [var.role_assignments]
+  expect_failures = [var.diagnostic_settings]
 }
